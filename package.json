@@ -9,7 +9,7 @@
     "cli": "bun run apps/cli/src/index.ts",
     "dev:api": "bun run --filter @linkedin-scraper/api dev",
     "dev:web": "bun run --filter @linkedin-scraper/web dev",
-    "test": "bun run --filter @linkedin-scraper/core test",
+    "test": "bun run --filter '@linkedin-scraper/*' test",
     "lint": "oxlint .",
     "typecheck": "tsc --noEmit && bun run --filter '@linkedin-scraper/*' typecheck",
     "build": "bun run --filter '@linkedin-scraper/*' build"

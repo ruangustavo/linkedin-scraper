@@ -1,4 +1,10 @@
-import index from "../index.html";
+import { fileURLToPath } from "node:url";
+
+const index = Bun.file(new URL("../dist/index.html", import.meta.url));
+
+if (!(await index.exists())) {
+  throw new Error("Missing web build. Run bun run build before starting the web server.");
+}
 
 const apiOrigin = process.env.API_ORIGIN ?? "http://127.0.0.1:3001";
 
@@ -22,9 +28,10 @@ const server = Bun.serve({
         return Response.json({ message: "The jobs API is unavailable." }, { status: 502 });
       }
     },
-    "/*": index,
+    "/assets/*": { dir: fileURLToPath(new URL("../dist/assets", import.meta.url)) },
+    "/*": new Response(index),
   },
-  development: process.env.NODE_ENV !== "production",
+  development: false,
 });
 
 console.log(`Web listening on ${server.url}`);

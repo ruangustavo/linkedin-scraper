@@ -10,7 +10,7 @@ is the pinned package manager/runtime; install dependencies once at the reposito
 | `packages/core` | `@linkedin-scraper/core` | LinkedIn service, RSC/SDUI parsing, session parsing and core tests |
 | `apps/cli` | `@linkedin-scraper/cli` | CLI arguments, local session files and JSONL input/output |
 | `apps/api` | `@linkedin-scraper/api` | Elysia API for saved jobs on port 3001 |
-| `apps/web` | `@linkedin-scraper/web` | Bun-native server/bundler, React 19, TanStack Query/Router, Tailwind v4 and shadcn/ui on port 3000 |
+| `apps/web` | `@linkedin-scraper/web` | Vite, React 19, TanStack Query/Router, Tailwind v4 and shadcn/ui on port 3000 |
 
 CLI, API and web share the core job schema through `workspace:*`. The API reads
 saved JSONL records; browsing jobs never triggers scraping or enrichment.
@@ -24,7 +24,8 @@ bun run dev:web
 ```
 
 Run the two development servers in separate terminals. Both accept `PORT` to override
-their default port. The web uses Bun's HTML bundler and `bun-plugin-tailwind`, not Vite.
+their default port. The web uses Vite with React Fast Refresh and `@tailwindcss/vite`.
+Vite requires Node.js 20.19+ or 22.12+; Bun remains the package manager and backend runtime.
 Both servers bind to loopback only. If the API port changes, set `API_ORIGIN` on the
 web server (default `http://127.0.0.1:3001`). The web proxies `/api/*` to the API so
 the browser uses same-origin requests without CORS configuration.
@@ -57,15 +58,15 @@ remain readable; collect or enrich them again to obtain `companyLogoUrl`.
 
 ## Web UI
 
-TanStack Router is pinned to `1.170.18` to preserve Bun's hot reload. The crash
-with Router `1.170.35` was also reproduced on Bun `1.4.2`: its HMR runtime fails
-on an import cycle before React mounts ([Bun #40378](https://github.com/oven-sh/bun/issues/40378)).
-Revisit the pin once the project's Bun version includes the
-[upstream fix](https://github.com/oven-sh/bun/pull/40259).
+Routes live in `apps/web/src/routes`: `__root.tsx` owns the layout, `index.tsx`
+loads the collection and `jobs.$identifier.tsx` loads a job. The TanStack Router
+Vite plugin generates `src/routeTree.gen.ts` during dev/build and automatically
+code-splits route components. Keep the generated tree in Git for standalone
+typechecking; do not edit it manually. Adding a route file no longer requires
+registering it in `router.tsx`.
 
 shadcn was initialized with its CLI (`init --base radix --preset nova --no-monorepo
---yes` and `add button --yes`). Its supported React/Vite scaffold was adapted to Bun
-after initialization, with Vite dependencies, configuration and demo assets removed.
+--yes` and `add button --yes`).
 Run future shadcn commands from `apps/web`, where `components.json` lives.
 
 Build and start the production apps with:
@@ -75,6 +76,12 @@ bun run build
 bun run --filter @linkedin-scraper/api start
 bun run --filter @linkedin-scraper/web start
 ```
+
+The web build produces static files in `apps/web/dist`. The production web server
+uses Bun only to serve those files, provide SPA fallback and proxy `/api/*`; it
+does not bundle source files or run Vite's development/preview server. Both dev
+and production keep the API on the same origin. Vite's filesystem access is
+restricted to frontend/core dependencies and denies local sessions and captures.
 
 ## CLI
 
@@ -184,5 +191,7 @@ bun run build
 Core tests use synthetic RSC responses, an injected HTTP client and Effect's test
 clock. They cover enrichment, list-only pagination/deduplication/limits, auth and
 rate-limit failures, session-cookie filtering and RSC parsing. They require no
-cookies, network access or real pacing delays. Runtime-generated files and captures
+cookies, network access or real pacing delays. Web tests build with Vite and check
+production assets, direct detail URLs, API proxying and upstream failure handling
+using a synthetic loopback API. Runtime-generated files and captures
 remain ignored by Git; `bun.lock` at the root is the only workspace lockfile.
