@@ -5,6 +5,7 @@ export const Job = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   company: Schema.String,
+  companyLogoUrl: Schema.optionalKey(Schema.NullOr(Schema.String)),
   location: Schema.String,
   url: Schema.String,
   description: Schema.NullOr(Schema.String),
@@ -99,6 +100,36 @@ function elements(root: Json | undefined, tag: string): JsonObject[] {
   }
 
   return matches;
+}
+
+function companyLogoUrl(root: Json, company?: string): string | null {
+  const urls = new Set<string>();
+
+  for (const node of objects(root)) {
+    if (company && (!Predicate.isString(node.a11yText) || !node.a11yText.includes(company))) {
+      continue;
+    }
+
+    const payload = node.renderPayload;
+
+    if (!isObject(payload) || !Predicate.isString(payload.rootUrl) ||
+      !payload.rootUrl.endsWith("/company-logo_") || !isArray(payload.imageRenditions)) {
+      continue;
+    }
+
+    const rendition = payload.imageRenditions.find((value) =>
+      isObject(value) && Predicate.isString(value.suffixUrl) && value.suffixUrl.length > 0);
+
+    if (!isObject(rendition)) continue;
+
+    const url = URL.parse(`${payload.rootUrl}${rendition.suffixUrl}`);
+
+    if (url && ["http:", "https:"].includes(url.protocol) && !url.username && !url.password) {
+      urls.add(url.href);
+    }
+  }
+
+  return urls.size === 1 ? urls.values().next().value ?? null : null;
 }
 
 function render(value: Json | undefined, markdown = false): string {
@@ -255,6 +286,7 @@ function reference(card: JsonObject): JobReference {
     id,
     title: render(span.children).trim(),
     company: render(company.children).trim(),
+    companyLogoUrl: companyLogoUrl(card),
     location: render(location.children).trim(),
     url: `https://www.linkedin.com/jobs/view/${id}/`,
     description: null,
@@ -432,15 +464,21 @@ export class Sdui {
           Object.hasOwn(node, name) ? [node[name]] : []))], "Missing or conflicting job metadata");
 
         const onsite = named("isOnsiteApply");
+        const company = named("companyName");
 
         if (!Predicate.isBoolean(onsite)) {
           throw new ProtocolError({ message: "Invalid onsite application metadata" });
         }
 
+        if (!Predicate.isString(company) || !company.trim()) {
+          throw new ProtocolError({ message: "Invalid company metadata" });
+        }
+
         return decodeJob({
           ...job,
           title: named("jobTitle"),
-          company: named("companyName"),
+          company,
+          companyLogoUrl: companyLogoUrl(root, company) ?? job.companyLogoUrl ?? null,
           applyUrl: onsite ? null : named("offsiteApplyUrl"),
         });
       },

@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { Clock, Effect, Fiber, Layer, Match, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
-import { LinkedIn, LinkedInError, ProtocolError, RscError, type Job, type ScrapeOptions } from "../src/index.ts";
+import { Job, LinkedIn, LinkedInError, ProtocolError, RscError, type ScrapeOptions } from "../src/index.ts";
+import { Sdui } from "../src/sdui.ts";
 
 const session = { cookie: "li_at=synthetic; JSESSIONID=\"test-csrf\"", csrfToken: "test-csrf" };
 
@@ -37,7 +38,19 @@ function navigate(screen: Schema.JsonObject) {
   return { $type: "proto.sdui.actions.core.Navigate", value: { content: { $case: "screen", screen } } };
 }
 
-function searchPage(index: number, ids: readonly string[]) {
+function logoImage(id: string) {
+  return {
+    renderPayload: {
+      rootUrl: `https://media.licdn.com/dms/image/v2/${id}/company-logo_`,
+      imageRenditions: [
+        { width: 100, height: 100, suffixUrl: "100_100/company-logo_100_100/0/logo?e=123&v=beta" },
+        { width: 200, height: 200, suffixUrl: "200_200/company-logo_200_200/0/logo?e=123&v=beta" },
+      ],
+    },
+  };
+}
+
+function searchPage(index: number, ids: readonly string[], withLogo = true) {
   return model({
     modelStates: [
       { key: binding("page"), value: { $case: "intValue", intValue: index } },
@@ -45,6 +58,10 @@ function searchPage(index: number, ids: readonly string[]) {
     ],
     children: ids.map((id): Schema.JsonObject => ({
       componentKey: `job-card-component-ref-${id}`,
+      image: {
+        selectedStateKey: binding(`JobCardFrameworkImplDismissedState_${id}`),
+        states: [["Default", withLogo ? logoImage(id) : null], ["Dismissed", withLogo ? logoImage(id) : null]],
+      },
       selectedStateKey: binding(`JobCardFrameworkImplDismissedState_${id}`),
       states: [["Default", [
         { textProps: {
@@ -133,6 +150,11 @@ test("enriches an existing job with only a direct detail GET and description POS
     companyName: "Example Labs",
     isOnsiteApply: false,
     offsiteApplyUrl: "https://careers.example.test/jobs/101",
+    images: [
+      { ...logoImage("other"), a11yText: "Logo of another company" },
+      { ...logoImage("101"), a11yText: "Logo of Example Labs" },
+      { ...logoImage("101"), a11yText: "Logo of Example Labs" },
+    ],
   });
 
   const description = model({
@@ -159,6 +181,7 @@ test("enriches an existing job with only a direct detail GET and description POS
     ...original,
     title: "Senior Engineer",
     company: "Example Labs",
+    companyLogoUrl: "https://media.licdn.com/dms/image/v2/101/company-logo_100_100/company-logo_100_100/0/logo?e=123&v=beta",
     applyUrl: "https://careers.example.test/jobs/101",
     description: "Build **reliable** systems.\n\n- Own delivery",
   });
@@ -180,6 +203,41 @@ test("enriches an existing job with only a direct detail GET and description POS
     .toEqual([[session.cookie, session.csrfToken], [session.cookie, session.csrfToken]]);
 });
 
+test("saved jobs decode with or without a company logo", () => {
+  const decode = Schema.decodeUnknownSync(Schema.fromJsonString(Job));
+
+  for (const job of [listing, { ...listing, companyLogoUrl: null }, { ...listing, companyLogoUrl: "https://example.test/logo.png" }]) {
+    expect(decode(JSON.stringify(job))).toEqual(job);
+  }
+});
+
+test("listings without a logo remain usable", async () => {
+  const { result } = await runLinkedIn(scrape({ ...searchOptions, pages: 1 }), [
+    new Response(searchPage(0, ["101"], false)),
+  ]);
+
+  expect(result[0]?.companyLogoUrl).toBeNull();
+  expect(result[0]?.company).toBe("Example 101");
+});
+
+test.each([null, "https://example.test/saved-logo.png"])("detail retains an existing logo (%s) when no usable logo is returned", async (companyLogoUrl) => {
+  const job = { ...listing, companyLogoUrl };
+
+  const detail = model({
+    jobId: "101",
+    jobTitle: "Engineer",
+    companyName: "Example",
+    isOnsiteApply: true,
+    images: [
+      { ...logoImage("other"), a11yText: "Logo of another company" },
+      { a11yText: "Logo of Example", renderPayload: { rootUrl: "https://example.test/company-logo_", imageRenditions: [] } },
+      { a11yText: "Logo of Example", renderPayload: { ...logoImage("101").renderPayload, rootUrl: "javascript:alert(1)//company-logo_" } },
+    ],
+  });
+
+  expect(await Effect.runPromise(new Sdui().detail(detail, job))).toEqual(job);
+});
+
 test("list-only follows pagination bindings, deduplicates across pages and stops at the limit", async () => {
   const route = "/jobs/search-results?keywords=distributed+systems&geoId=123";
 
@@ -192,6 +250,7 @@ test("list-only follows pagination bindings, deduplicates across pages and stops
     id,
     title: `Engineer ${id}`,
     company: `Example ${id}`,
+    companyLogoUrl: `https://media.licdn.com/dms/image/v2/${id}/company-logo_100_100/company-logo_100_100/0/logo?e=123&v=beta`,
     location: "Remote",
     url: `https://www.linkedin.com/jobs/view/${id}/`,
     description: null,

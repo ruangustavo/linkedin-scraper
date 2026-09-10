@@ -48,6 +48,32 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@layer components {
+  .job-description {
+    & > * + * {
+      @apply mt-5;
+    }
+    & :is(h1, h2, h3, h4) {
+      @apply mt-8 text-xl font-semibold tracking-tight;
+    }
+    & ul {
+      @apply list-disc space-y-2 pl-5;
+    }
+    & ol {
+      @apply list-decimal space-y-2 pl-5;
+    }
+    & a {
+      @apply underline underline-offset-4;
+    }
+    & blockquote {
+      @apply border-l-2 border-border pl-5 text-muted-foreground;
+    }
+    & pre {
+      @apply overflow-x-auto rounded-lg bg-muted p-4 text-sm;
+    }
+  }
+}
+
 :root {
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);

@@ -7,6 +7,7 @@ const result = await Bun.build({
   entrypoints: ["./src/server.ts"],
   root: ".",
   outdir: "./dist",
+  publicPath: "/",
   naming: "[name].[ext]",
   target: "bun",
   plugins: [tailwind],

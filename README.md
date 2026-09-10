@@ -1,6 +1,6 @@
 # linkedin-scraper
 
-Bun workspaces for listing LinkedIn jobs and enriching selected jobs. Bun 1.3.11
+Bun workspaces for listing LinkedIn jobs and enriching selected jobs. Bun 1.4.2
 is the pinned package manager/runtime; install dependencies once at the repository root.
 
 ## Workspaces
@@ -9,11 +9,11 @@ is the pinned package manager/runtime; install dependencies once at the reposito
 | --- | --- | --- |
 | `packages/core` | `@linkedin-scraper/core` | LinkedIn service, RSC/SDUI parsing, session parsing and core tests |
 | `apps/cli` | `@linkedin-scraper/cli` | CLI arguments, local session files and JSONL input/output |
-| `apps/api` | `@linkedin-scraper/api` | Elysia boilerplate with `GET /health` on port 3001 |
-| `apps/web` | `@linkedin-scraper/web` | Bun-native server/bundler, React 19, Tailwind v4 and shadcn/ui on port 3000 |
+| `apps/api` | `@linkedin-scraper/api` | Elysia API for saved jobs on port 3001 |
+| `apps/web` | `@linkedin-scraper/web` | Bun-native server/bundler, React 19, TanStack Query/Router, Tailwind v4 and shadcn/ui on port 3000 |
 
-CLI and API depend on core through `workspace:*`. API and web have no job routes,
-database, scraping integration or job UI yet. The web is only a minimal starter page.
+CLI, API and web share the core job schema through `workspace:*`. The API reads
+saved JSONL records; browsing jobs never triggers scraping or enrichment.
 
 ## Development
 
@@ -25,13 +25,50 @@ bun run dev:web
 
 Run the two development servers in separate terminals. Both accept `PORT` to override
 their default port. The web uses Bun's HTML bundler and `bun-plugin-tailwind`, not Vite.
+Both servers bind to loopback only. If the API port changes, set `API_ORIGIN` on the
+web server (default `http://127.0.0.1:3001`). The web proxies `/api/*` to the API so
+the browser uses same-origin requests without CORS configuration.
+
+## Saved Jobs
+
+The API reads `jobs.jsonl` at the repository root by default. Override it with
+`JOBS_FILE`, either an absolute path or a path relative to the repository root.
+The file is read and validated on each request, so no server restart is needed
+when its contents change. No session file or LinkedIn credentials are required.
+
+| Endpoint | Response |
+| --- | --- |
+| `GET /health` | `{ "status": "ok" }` |
+| `GET /jobs` | An array of saved `Job` records, in file order |
+| `GET /jobs/:identifier` | A single job, matched by its string `id` |
+
+An empty file returns `[]`. Missing jobs return 404; non-numeric identifiers return
+422. Missing/unreadable files, malformed records and duplicate IDs return 503
+rather than silently presenting an empty or ambiguous collection.
+
+The web lists cards at `/` and job details at `/jobs/:identifier`. Route loaders
+populate TanStack Query's cache; `Link` uses intent preloading on hover, focus and
+touch. Query owns freshness with a 60-second stale time. Direct detail URLs and
+reloads are supported. Markdown descriptions are rendered without raw HTML or
+images; jobs collected with `--list-only` show a description-unavailable state.
+Company logos appear beside the company name on cards and detail pages, with an
+initial as fallback when the logo is missing or cannot load. Older JSONL records
+remain readable; collect or enrich them again to obtain `companyLogoUrl`.
+
+## Web UI
+
+TanStack Router is pinned to `1.170.18` to preserve Bun's hot reload. The crash
+with Router `1.170.35` was also reproduced on Bun `1.4.2`: its HMR runtime fails
+on an import cycle before React mounts ([Bun #40378](https://github.com/oven-sh/bun/issues/40378)).
+Revisit the pin once the project's Bun version includes the
+[upstream fix](https://github.com/oven-sh/bun/pull/40259).
 
 shadcn was initialized with its CLI (`init --base radix --preset nova --no-monorepo
 --yes` and `add button --yes`). Its supported React/Vite scaffold was adapted to Bun
 after initialization, with Vite dependencies, configuration and demo assets removed.
 Run future shadcn commands from `apps/web`, where `components.json` lives.
 
-Build and start the production boilerplates with:
+Build and start the production apps with:
 
 ```bash
 bun run build
@@ -59,9 +96,10 @@ Replace `1234567890` with an ID present in your file. Enrichment reads the saved
 record, fetches details directly by ID, then fetches its description. It does not
 repeat the search or require the original search terms, page or navigation state.
 
-The result is one JSONL record with refreshed title/company, a Markdown description
-and an external application URL when available. The original ID, location and URL
-are preserved. The input file is never modified; omitting `--output` writes to stdout.
+The result is one JSONL record with refreshed title/company, a company logo URL,
+a Markdown description and an external application URL when available. The original
+ID, location and URL are preserved. The input file is never modified; omitting
+`--output` writes to stdout.
 
 ## Search Options
 
@@ -107,9 +145,10 @@ there is no automatic login or session refresh.
 
 ## Output And Limits
 
-Each JSONL record contains `id`, `title`, `company`, `location`, `url`, `description`
-and `applyUrl`. Descriptions are Markdown. With `--list-only`, details remain null;
-onsite applications also have `applyUrl: null`.
+Each new JSONL record contains `id`, `title`, `company`, `companyLogoUrl`, `location`,
+`url`, `description` and `applyUrl`. The logo URL is null when unavailable.
+Descriptions are Markdown. With `--list-only`, logos are still collected, while
+`description` and `applyUrl` remain null; onsite applications also have `applyUrl: null`.
 
 Output files are created with mode `0600` and never overwrite an existing file.
 Partial output remains if a later request fails. There is no automatic resume.
@@ -130,8 +169,8 @@ Provide the session with `LinkedIn.layer(session)` and the HTTP client through
 Effect's `HttpClient` service.
 
 `parseSession(text)` decodes session JSON without filesystem access. Reading local
-files and writing output live in `apps/cli/src`, not in core. API does not load a
-session or make LinkedIn requests until those routes are implemented.
+files and writing output live in `apps/cli/src`, not in core. The API only reads
+saved jobs and does not load a session or make LinkedIn requests.
 
 ## Checks
 
