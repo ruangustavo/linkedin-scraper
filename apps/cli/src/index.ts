@@ -3,20 +3,28 @@ import { parseArgs } from "node:util";
 import { Effect, Layer, Stream } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { InputError, readSession } from "./session.ts";
-import { LinkedIn } from "./linkedin.ts";
+import { LinkedIn } from "@linkedin-scraper/core";
+import { readJob } from "./job-file.ts";
 
 const HELP = `LinkedIn jobs scraper (Effect 4 / Bun)
 
-  bun run src/index.ts --keywords "backend engineer" [options]
+  bun start --keywords "backend engineer" --list-only [options]
+  bun start enrich --input jobs.jsonl --id JOB_ID [options]
 
-Options:
+Search options:
   --keywords TEXT  Job search terms (required)
   --geo-id ID      LinkedIn geographic filter (optional)
-  --session FILE   Local cookie export or JSON with cookie and csrfToken (default: cookies.json)
   --pages N        Maximum search pages, 1-100 (default: 1)
   --limit N        Maximum jobs, 1-2500 (default: 25)
-  --delay-ms N     Minimum pause before every request, at least 1000 (default: 2000)
   --list-only      Fetch cards without opening job details
+
+Enrichment options:
+  --input FILE     Existing jobs JSONL file (required; never modified)
+  --id JOB_ID      Numeric ID of exactly one job in the input file (required)
+
+Shared options:
+  --session FILE   Local cookie export or JSON with cookie and csrfToken (default: cookies.json)
+  --delay-ms N     Minimum pause before every request, 1000-60000 (default: 2000)
   --output FILE    Create a new JSONL file; never overwrite an existing file
   --help          Show this help
 
@@ -35,9 +43,11 @@ function integer(name: string, value: string, minimum: number, maximum: number) 
 }
 
 const main = Effect.gen(function*() {
+  const isEnrich = Bun.argv[2] === "enrich";
+
   const { values } = yield* Effect.try({
     try: () => parseArgs({
-      args: Bun.argv.slice(2),
+      args: Bun.argv.slice(isEnrich ? 3 : 2),
       allowPositionals: false,
       strict: true,
       options: {
@@ -45,10 +55,12 @@ const main = Effect.gen(function*() {
         "geo-id": { type: "string" },
         session: { type: "string", default: "cookies.json" },
         output: { type: "string" },
-        pages: { type: "string", default: "1" },
-        limit: { type: "string", default: "25" },
+        input: { type: "string" },
+        id: { type: "string" },
+        pages: { type: "string" },
+        limit: { type: "string" },
         "delay-ms": { type: "string", default: "2000" },
-        "list-only": { type: "boolean", default: false },
+        "list-only": { type: "boolean" },
         help: { type: "boolean", default: false },
       },
     }),
@@ -63,22 +75,31 @@ const main = Effect.gen(function*() {
 
   const keywords = values.keywords?.trim();
 
-  if (!keywords) {
+  if (isEnrich && [values.keywords, values["geo-id"], values.pages, values.limit, values["list-only"]].some((value) => value !== undefined)) {
+    return yield* new InputError({ message: "Search options cannot be used with enrich. Use enrich --help." });
+  }
+
+  if (!isEnrich && (values.input !== undefined || values.id !== undefined)) {
+    return yield* new InputError({ message: "--input and --id require the enrich command." });
+  }
+
+  if (!isEnrich && !keywords) {
     return yield* new InputError({ message: "Provide nonempty --keywords for the job search." });
   }
 
   const options = yield* Effect.try({
     try: () => ({
-      keywords,
+      keywords: keywords ?? "",
       geoId: values["geo-id"],
-      pages: integer("--pages", values.pages, 1, 100),
-      limit: integer("--limit", values.limit, 1, 2500),
+      pages: integer("--pages", values.pages ?? "1", 1, 100),
+      limit: integer("--limit", values.limit ?? (isEnrich ? "1" : "25"), 1, 2500),
       delayMs: integer("--delay-ms", values["delay-ms"], 1000, 60000),
-      listOnly: values["list-only"],
+      listOnly: values["list-only"] ?? false,
     }),
     catch: (cause) => cause instanceof InputError ? cause : new InputError({ message: "Invalid collection limits." }),
   });
 
+  const job = isEnrich ? yield* readJob(values.input ?? "", values.id ?? "") : null;
   const session = yield* readSession(values.session);
 
   const outputPath = values.output;
@@ -105,6 +126,14 @@ const main = Effect.gen(function*() {
 
   const collect = Effect.gen(function*() {
     const linkedin = yield* LinkedIn;
+
+    if (job) {
+      const enriched = yield* linkedin.enrich(job, options.delayMs);
+      yield* write(`${JSON.stringify(enriched)}\n`);
+
+      return;
+    }
+
     yield* linkedin.scrape(options).pipe(Stream.runForEach((job) => write(`${JSON.stringify(job)}\n`)));
   });
 

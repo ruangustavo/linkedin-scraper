@@ -22,6 +22,7 @@ export class LinkedInError extends Schema.TaggedError<LinkedInError>()("LinkedIn
 
 export class LinkedIn extends Context.Service<LinkedIn, {
   scrape(options: ScrapeOptions): Stream.Stream<Job, LinkedInError | ProtocolError | RscError>;
+  enrich(job: Job, delayMs?: number): Effect.Effect<Job, LinkedInError | ProtocolError | RscError>;
 }>()("linkedin-scraper/LinkedIn") {
   static layer(session: Session) {
     return Layer.effect(LinkedIn, Effect.gen(function*() {
@@ -43,7 +44,7 @@ export class LinkedIn extends Context.Service<LinkedIn, {
           const target = URL.parse(url, "https://www.linkedin.com");
 
           if (!target || target.origin !== "https://www.linkedin.com" || target.username || target.password ||
-            ![/^\/flagship-web\/jobs\/search-results\/?$/, /^\/flagship-web\/rsc-action\/actions\/component$/]
+            ![/^\/flagship-web\/jobs\/search-results\/?$/, /^\/flagship-web\/jobs\/view\/\d+\/$/, /^\/flagship-web\/rsc-action\/actions\/component$/]
               .some((path) => path.test(target.pathname))) {
             return yield* new LinkedInError({ reason: "Response", message: "Refusing an unexpected request destination." });
           }
@@ -134,7 +135,42 @@ export class LinkedIn extends Context.Service<LinkedIn, {
         return url.href;
       }
 
+      const enrich = Effect.fn("LinkedIn.enrich")(function*(listing: Job, delayMs = 2000) {
+        if (!/^\d+$/.test(listing.id)) {
+          return yield* new LinkedInError({ reason: "Response", message: "Job ID must contain digits only." });
+        }
+
+        if (!Number.isSafeInteger(delayMs) || delayMs < 1000 || delayMs > 60000) {
+          return yield* new LinkedInError({ reason: "Response", message: "Request delay must be an integer between 1000 and 60000 milliseconds." });
+        }
+
+        const sdui = new Sdui();
+        const url = `https://www.linkedin.com/flagship-web/jobs/view/${listing.id}/`;
+
+        const detail = yield* pacedRequest(url, null, delayMs);
+
+        const job = yield* sdui.detail(detail.text, listing);
+        const componentUrl = new URL("https://www.linkedin.com/flagship-web/rsc-action/actions/component");
+        componentUrl.searchParams.set("componentId", ABOUT_THE_JOB);
+        componentUrl.searchParams.set("sduiid", ABOUT_THE_JOB);
+
+        const componentBody = {
+          clientArguments: {
+            payload: { jobId: job.id, renderAsCard: false },
+            states: [],
+            requestMetadata: { $type: "proto.sdui.common.RequestMetadata" },
+            screenId: "com.linkedin.sdui.flagshipnav.jobs.SemanticJobDetails",
+            knownTemplateIds: [],
+          },
+        };
+
+        const description = yield* pacedRequest(componentUrl.href, componentBody, delayMs);
+
+        return yield* sdui.description(description.text, job);
+      });
+
       return LinkedIn.of({
+        enrich,
         scrape: (options) => Stream.suspend(() => {
           const sdui = new Sdui();
           const seen = new Set<string>();
@@ -183,36 +219,9 @@ export class LinkedIn extends Context.Service<LinkedIn, {
 
           return pages.pipe(
             Stream.take(options.limit),
-            Stream.mapEffect(Effect.fn("LinkedIn.job")(function*(reference: JobReference) {
-              if (options.listOnly) return reference.job;
-
-              const body = yield* sdui.navigate(reference.screen);
-              const url = navigationUrl(body);
-
-              if (!url) return yield* new ProtocolError({ message: "Missing or invalid job navigation URL." });
-
-              const detail = yield* pacedRequest(url, body, options.delayMs, initialUrl);
-              initialUrl = detail.routeUrl;
-
-              const job = yield* sdui.detail(detail.text, reference.job);
-              const componentUrl = new URL("https://www.linkedin.com/flagship-web/rsc-action/actions/component");
-              componentUrl.searchParams.set("componentId", ABOUT_THE_JOB);
-              componentUrl.searchParams.set("sduiid", ABOUT_THE_JOB);
-
-              const componentBody = {
-                clientArguments: {
-                  payload: { jobId: job.id, renderAsCard: false },
-                  states: [],
-                  requestMetadata: { $type: "proto.sdui.common.RequestMetadata" },
-                  screenId: "com.linkedin.sdui.flagshipnav.jobs.SemanticJobDetails",
-                  knownTemplateIds: [],
-                },
-              };
-
-              const description = yield* pacedRequest(componentUrl.href, componentBody, options.delayMs);
-
-              return yield* sdui.description(description.text, job);
-            })),
+            Stream.mapEffect((reference) => options.listOnly
+              ? Effect.succeed(reference.job)
+              : enrich(reference.job, options.delayMs)),
           );
         }),
       });
