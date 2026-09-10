@@ -24,7 +24,7 @@ Enrichment options:
 
 Shared options:
   --session FILE   Local cookie export or JSON with cookie and csrfToken (default: cookies.json)
-  --delay-ms N     Minimum pause before every request, 1000-60000 (default: 2000)
+  --delay-ms N     Minimum pause before every request, 500-60000 (default: 2000)
   --output FILE    Create a new JSONL file; never overwrite an existing file
   --help          Show this help
 
@@ -93,7 +93,7 @@ const main = Effect.gen(function*() {
       geoId: values["geo-id"],
       pages: integer("--pages", values.pages ?? "1", 1, 100),
       limit: integer("--limit", values.limit ?? (isEnrich ? "1" : "25"), 1, 2500),
-      delayMs: integer("--delay-ms", values["delay-ms"], 1000, 60000),
+      delayMs: integer("--delay-ms", values["delay-ms"], 500, 60000),
       listOnly: values["list-only"] ?? false,
     }),
     catch: (cause) => cause instanceof InputError ? cause : new InputError({ message: "Invalid collection limits." }),

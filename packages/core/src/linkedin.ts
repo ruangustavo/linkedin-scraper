@@ -140,8 +140,8 @@ export class LinkedIn extends Context.Service<LinkedIn, {
           return yield* new LinkedInError({ reason: "Response", message: "Job ID must contain digits only." });
         }
 
-        if (!Number.isSafeInteger(delayMs) || delayMs < 1000 || delayMs > 60000) {
-          return yield* new LinkedInError({ reason: "Response", message: "Request delay must be an integer between 1000 and 60000 milliseconds." });
+        if (!Number.isSafeInteger(delayMs) || delayMs < 500 || delayMs > 60000) {
+          return yield* new LinkedInError({ reason: "Response", message: "Request delay must be an integer between 500 and 60000 milliseconds." });
         }
 
         const sdui = new Sdui();

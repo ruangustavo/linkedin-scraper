@@ -143,7 +143,7 @@ async function runLinkedIn<A, E>(operation: Effect.Effect<A, E, LinkedIn>, respo
   return { result, requests, times };
 }
 
-test("enriches an existing job with only a direct detail GET and description POST", async () => {
+test.each([500, 1000])("enriches an existing job with only a direct detail GET and description POST at %d ms", async (delayMs) => {
   const detail = model({
     jobId: "101",
     jobTitle: "Senior Engineer",
@@ -173,7 +173,7 @@ test("enriches an existing job with only a direct detail GET and description POS
   const original = { ...listing };
 
   const { result, requests, times } = await runLinkedIn(
-    Effect.flatMap(LinkedIn, (linkedin) => linkedin.enrich(listing, 1000)),
+    Effect.flatMap(LinkedIn, (linkedin) => linkedin.enrich(listing, delayMs)),
     [new Response(detail), new Response(description)],
   );
 
@@ -186,7 +186,7 @@ test("enriches an existing job with only a direct detail GET and description POS
     description: "Build **reliable** systems.\n\n- Own delivery",
   });
   expect(listing).toEqual(original);
-  expect(times).toEqual([1000, 2000]);
+  expect(times).toEqual([delayMs, delayMs * 2]);
   expect(requests.map((request) => [request.method, request.url, payload(request)])).toEqual([
     ["GET", "https://www.linkedin.com/flagship-web/jobs/view/101/", null],
     ["POST", "https://www.linkedin.com/flagship-web/rsc-action/actions/component?componentId=com.linkedin.sdui.generated.jobseeker.dsl.impl.aboutTheJob&sduiid=com.linkedin.sdui.generated.jobseeker.dsl.impl.aboutTheJob", {
@@ -201,6 +201,16 @@ test("enriches an existing job with only a direct detail GET and description POS
   ]);
   expect(requests.map((request) => [request.headers.cookie, request.headers["csrf-token"]]))
     .toEqual([[session.cookie, session.csrfToken], [session.cookie, session.csrfToken]]);
+});
+
+test.each([0, 499, 500.5, 60001, NaN])("rejects invalid enrichment delay %s before making requests", async (delayMs) => {
+  const { result, requests } = await runLinkedIn(
+    Effect.flatMap(LinkedIn, (linkedin) => linkedin.enrich(listing, delayMs)).pipe(Effect.flip),
+    [],
+  );
+
+  expect(result).toBeInstanceOf(LinkedInError);
+  expect(requests).toHaveLength(0);
 });
 
 test("saved jobs decode with or without a company logo", () => {

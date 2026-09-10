@@ -130,7 +130,7 @@ without conversion. An already enriched record can also be refreshed.
 | Option | Purpose | Default |
 | --- | --- | --- |
 | `--session FILE` | Local session file | `cookies.json` |
-| `--delay-ms N` | Pause before each request, 1000-60000 ms | 2000 |
+| `--delay-ms N` | Pause before each request, 500-60000 ms | 2000 |
 | `--output FILE` | Create a new JSONL file | stdout |
 
 ## Session
