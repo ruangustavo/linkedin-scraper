@@ -12,7 +12,8 @@
     ".roo/**",
     ".windsurf/**",
     "tools/oxlint/anti-slop/**",
-    "**/routeTree.gen.ts"
+    "**/.next/**",
+    "**/next-env.d.ts"
   ],
   "jsPlugins": [
     {

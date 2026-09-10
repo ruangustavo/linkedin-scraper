@@ -1,28 +1,20 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Link, notFound } from "@tanstack/react-router";
+import type { Job } from "@linkedin-scraper/core";
+import Link from "next/link";
 import Markdown from "react-markdown";
 import { CompanyLogo } from "@/components/CompanyLogo";
 import { Button } from "@/components/ui/button";
-import { jobQueryOptions } from "@/lib/jobs";
-
-const route = getRouteApi("/jobs/$identifier");
 
 function externalUrl(url: string | null) {
   return url && /^https?:\/\//i.test(url) ? url : undefined;
 }
 
-export function JobDetail() {
-  const { identifier } = route.useParams();
-  const { data: job } = useSuspenseQuery(jobQueryOptions(identifier));
-
-  if (!job) throw notFound();
-
+export function JobDetail({ job }: { job: Job }) {
   const applyUrl = externalUrl(job.applyUrl);
   const linkedInUrl = externalUrl(job.url);
 
   return (
     <article>
-      <Link to="/" preload="intent" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
+      <Link href="/" prefetch={false} className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline">
         Back to jobs
       </Link>
 

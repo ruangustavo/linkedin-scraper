@@ -4,6 +4,8 @@ node_modules
 # output
 out
 dist
+.next
+next-env.d.ts
 *.tgz
 
 # code coverage

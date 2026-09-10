@@ -1,11 +1,8 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import type { Job } from "@linkedin-scraper/core";
+import Link from "next/link";
 import { CompanyLogo } from "@/components/CompanyLogo";
-import { jobsQueryOptions } from "@/lib/jobs";
 
-export function App() {
-  const { data: jobs } = useSuspenseQuery(jobsQueryOptions);
-
+export function App({ jobs }: { jobs: ReadonlyArray<Job> }) {
   return (
     <>
       <section className="mb-12 flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
@@ -31,9 +28,8 @@ export function App() {
           {jobs.map((job) => (
             <li key={job.id} className="min-w-0">
               <Link
-                to="/jobs/$identifier"
-                params={{ identifier: job.id }}
-                preload="intent"
+                href={`/jobs/${encodeURIComponent(job.id)}`}
+                prefetch={false}
                 className="group flex h-full flex-col rounded-xl border border-border bg-card p-6 transition-colors hover:border-foreground/40 hover:bg-muted/30 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
               >
                 <div className="flex items-center gap-3">
