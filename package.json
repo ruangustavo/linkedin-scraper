@@ -1,0 +1,22 @@
+{
+  "name": "linkedin-scraper",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "lint": "oxlint .",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.82.0",
+    "@types/bun": "latest",
+    "oxlint": "1.82.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "effect": "^4.0.0-rc.113"
+  }
+}
